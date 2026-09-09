@@ -10,8 +10,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="발주장부">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png">
-<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192-v2.png">
+<link rel="icon" href="icon-192-v2.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <script>window.__API_URL__ = "%%API_URL%%";</script>
@@ -353,11 +353,11 @@ async function demoApi(action,p){await new Promise(r=>setTimeout(r,120));const m
 function renderSetup(err){
   document.body.className='';
   el('root').innerHTML='<div class="auth"><div class="auth-card">'+logoHtml('서버 연결')+(err?'<div class="err">'+esc(err)+'</div>':'')
-   +'<p style="font-size:13px;color:var(--muted);margin:0 0 12px">처음 한 번만 설정합니다. 대표님이 알려준 <b>서버 주소</b>(https://script.google.com/… 으로 시작)를 붙여넣으세요.</p>'
+   +'<p style="font-size:13px;color:var(--muted);margin:0 0 12px">처음 한 번만 설정합니다. 대표님이 구글 배포 화면에서 받은 <b>서버 주소</b>를 붙여넣으세요. <code>https://script.google.com/</code> 으로 시작해 <code>/exec</code> 로 끝나는 아주 긴 주소입니다.</p>'
    +'<div class="f"><input class="inp" id="su-url" placeholder="https://script.google.com/macros/s/…/exec" inputmode="url" autocapitalize="off" autocorrect="off"></div>'
    +'<button class="btn p w" id="su-go">연결 확인</button>'
    +'<div class="foot">서버 없이 화면만 보려면 <button id="su-demo">데모로 둘러보기</button></div></div></div>';
-  el('su-go').onclick=async()=>{const u=norm(el('su-url').value);if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u)){renderSetup('주소 형식이 맞지 않습니다. …/exec 로 끝나야 합니다.');return;}
+  el('su-go').onclick=async()=>{let u=norm(el('su-url').value).replace(/[\u2026]/g,'').replace(/\s+/g,'');if(!/^https:\/\/script\.google\.com\/.+\/exec(\?.*)?$/.test(u)){renderSetup('주소가 맞지 않습니다. 구글 배포 화면에서 나온 <b>전체 주소</b>를 복사해 붙여넣으세요. https:// 로 시작하고 /exec 로 끝나야 합니다.');return;}
     busy(true,'연결 확인 중…');try{const r=await fetch(u,{method:'POST',body:JSON.stringify({action:'ping'})});const j=await r.json();if(!j.ok)throw 0;S.api=u;lsSet('bj-api',u);renderLogin();}catch(e){renderSetup('연결되지 않습니다. 주소와 배포 설정(액세스: 모든 사용자)을 확인하세요.');}finally{busy(false);}};
   el('su-demo').onclick=()=>{S.demo=true;demoSeed();renderLogin();};
 }
@@ -665,7 +665,7 @@ async function openDetail(id){
   if('serviceWorker' in navigator&&location.protocol==='https:'&&!/googleusercontent|script\.google/.test(location.hostname)){navigator.serviceWorker.register('sw.js').catch(()=>{});}
   const injected=window.__API_URL__&&!/^%%/.test(window.__API_URL__)?window.__API_URL__:'';
   const fromParam=params.get('api')||'';
-  if(fromParam&&/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(fromParam)){lsSet('bj-api',fromParam);history.replaceState(null,'',location.pathname);}
+  if(fromParam&&/^https:\/\/script\.google\.com\/.+\/exec(\?.*)?$/.test(fromParam)){lsSet('bj-api',fromParam);history.replaceState(null,'',location.pathname);}
   S.api=injected||lsGet('bj-api','')||(fromParam||'');
   if(params.get('demo')==='1'){S.demo=true;demoSeed();renderLogin();return;}
   if(!S.api){renderSetup();return;}
