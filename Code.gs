@@ -297,7 +297,7 @@ function photoGet_(id) {
   catch (e) { return { dataUrl: '' }; }
 }
 
-/* ═══════════════ 메모 사진 (여러 장, Drive 저장) ═══════════════ */
+/* ═══════════════ 특이사항 사진 (여러 장, Drive 저장) ═══════════════ */
 function noteLists_(sh, row) {
   const ci = ORDER_COLS.indexOf('notePhotoIds') + 1, ct = ORDER_COLS.indexOf('noteThumbs') + 1;
   let ids = [], ths = [];
@@ -310,16 +310,18 @@ function notePhotoAdd_(id, dataUrl, thumb) {
   const m = /^data:(image\/[a-z]+);base64,(.+)$/i.exec(String(dataUrl || ''));
   if (!m) throw new Error('사진 형식 오류');
   if (m[2].length > 2.5e6) throw new Error('사진이 너무 큽니다');
-  thumb = String(thumb || ''); if (thumb.length > 20000) thumb = '';
+  thumb = String(thumb || ''); if (thumb.length > 2600) thumb = '';
   const lock = LockService.getScriptLock(); lock.waitLock(15000);
   try {
     const sh = sheet_(SHEET_ORDERS); ensureCols_(sh, ORDER_COLS.length);
     const idx = indexById_(sh); const row = idx[id]; if (!row) throw new Error('기록을 찾을 수 없습니다');
     const L = noteLists_(sh, row);
-    if (L.ids.length >= 4) throw new Error('메모 사진은 4장까지입니다');
+    if (L.ids.length >= 20) throw new Error('특이사항 사진은 20장까지입니다');
     const folder = DriveApp.getFolderById(getSetting_('photoFolderId'));
     const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], id + '-memo-' + (L.ids.length + 1) + '.jpg'));
     L.ids.push(file.getId()); L.ths.push(thumb);
+    // 시트 한 칸은 5만 자까지만 담을 수 있어, 넘칠 것 같으면 새 미리보기만 비워 둔다(원본 사진은 드라이브에 안전히 저장됨)
+    if (JSON.stringify(L.ths).length > 45000) { L.ths[L.ths.length - 1] = ''; }
     sh.getRange(row, L.ci).setNumberFormat('@').setValue(JSON.stringify(L.ids));
     sh.getRange(row, L.ct).setNumberFormat('@').setValue(JSON.stringify(L.ths));
     return { notePhotoIds: L.ids, noteThumbs: L.ths };
