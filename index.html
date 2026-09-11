@@ -255,6 +255,7 @@ textarea.inp{height:auto;min-height:64px;padding:9px 12px;resize:vertical}
 (function(){
 'use strict';
 const APP_VERSION='3.0';
+const DEFAULT_API="https://script.google.com/macros/s/AKfycbxvV_sNgpdtZbGK2AnGGViSiIwKtcgF-ofJsniRbt7bJrwE_3JcX90jkRzMT5yS5V3g/exec"; // 서버 주소 미리 넣어둠(직원은 주소 입력 불필요)
 const OWN='스테이지랩', DOW=['일','월','화','수','목','금','토'];
 const DEFAULT_OPTIONS={suppliers:['커버플릭','비닐프로그','비닐프로그-CYS/터미낙스','오퍼(오토벨벳)','오토모스트','TECKWRAP'],customers:['RP','천안LX서북점','고양몬스터디테일','픽스디테일링','순정디테일링'],items:['스타빌','윈드쉴드','파이온','고광택PET','컬러PPF','무광PPF','하이무광PPF','미들무광PPF','블랙PPF','열차단PPF','3x','2x','글로우'],units:['롤','m','ea']};
 const OPT_LABEL={items:'품목',suppliers:'주문처',customers:'판매 업체',units:'단위'};
@@ -666,7 +667,7 @@ async function openDetail(id){
   const injected=window.__API_URL__&&!/^%%/.test(window.__API_URL__)?window.__API_URL__:'';
   const fromParam=params.get('api')||'';
   if(fromParam&&/^https:\/\/script\.google\.com\/.+\/exec(\?.*)?$/.test(fromParam)){lsSet('bj-api',fromParam);history.replaceState(null,'',location.pathname);}
-  S.api=injected||lsGet('bj-api','')||(fromParam||'');
+  S.api=injected||lsGet('bj-api','')||fromParam||DEFAULT_API;
   if(params.get('demo')==='1'){S.demo=true;demoSeed();renderLogin();return;}
   if(!S.api){renderSetup();return;}
   S.token=lsGet('bj-token','');S.me=lsGet('bj-me',null);
