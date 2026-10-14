@@ -263,8 +263,10 @@ textarea.inp{height:auto;min-height:64px;padding:9px 12px;resize:vertical}
 <script>
 (function(){
 'use strict';
-const APP_VERSION='3.0';
-const DEFAULT_API="https://script.google.com/macros/s/AKfycbxvV_sNgpdtZbGK2AnGGViSiIwKtcgF-ofJsniRbt7bJrwE_3JcX90jkRzMT5yS5V3g/exec"; // 서버 주소 미리 넣어둠(직원은 주소 입력 불필요)
+const APP_VERSION='3.3';
+const MIN_SERVER_VERSION=4; // 서버(Code.gs)의 SERVER_VERSION이 이보다 낮으면 "구버전 서버" 경고를 띄운다
+const DEFAULT_API="https://script.google.com/macros/s/AKfycbzMkRQUyV5yOrWdLQPTMC3Cz8QdpqFRaUQAKO1b790oDXMIiNVcxnl73Vgi_fZshMZb/exec"; // 서버 주소 미리 넣어둠(직원은 주소 입력 불필요) — 2026-10-14 실제 배포 주소로 교체
+const OLD_APIS=["https://script.google.com/macros/s/AKfycbxvV_sNgpdtZbGK2AnGGViSiIwKtcgF-ofJsniRbt7bJrwE_3JcX90jkRzMT5yS5V3g/exec"]; // 예전 앱에 박혀 있던 주소. 저장돼 있으면 자동으로 새 주소로 바꾼다
 const OWN='스테이지랩', DOW=['일','월','화','수','목','금','토'];
 const DEFAULT_OPTIONS={suppliers:['커버플릭','비닐프로그','비닐프로그-CYS/터미낙스','오퍼(오토벨벳)','오토모스트','TECKWRAP'],customers:['RP','천안LX서북점','고양몬스터디테일','픽스디테일링','순정디테일링'],items:['스타빌','윈드쉴드','파이온','고광택PET','컬러PPF','무광PPF','하이무광PPF','미들무광PPF','블랙PPF','열차단PPF','3x','2x','글로우'],units:['롤','m','ea']};
 const OPT_LABEL={items:'품목',suppliers:'주문처',customers:'판매 업체',units:'단위'};
@@ -290,7 +292,7 @@ function clone(o){return JSON.parse(JSON.stringify(o));}
 function uid(){return Math.random().toString(16).slice(2,10)+Math.random().toString(16).slice(2,6);}
 
 /* ───────── 상태 ───────── */
-const S={api:'',token:'',me:null,demo:false,tab:'home',month:null,status:'all',supplier:'',q:'',showSearch:false,selMode:false,sel:{},orders:[],options:clone(DEFAULT_OPTIONS),staff:[],lastSync:0,photoCache:{},prefs:Object.assign({mode:'light',tone:'gray',font:'normal',density:'compact'},lsGet('bj-prefs',{}))};
+const S={api:'',token:'',me:null,demo:false,serverOld:false,tab:'home',month:null,status:'all',supplier:'',q:'',showSearch:false,selMode:false,sel:{},orders:[],options:clone(DEFAULT_OPTIONS),staff:[],lastSync:0,photoCache:{},prefs:Object.assign({mode:'light',tone:'gray',font:'normal',density:'compact'},lsGet('bj-prefs',{}))};
 
 /* ───────── 테마 적용 ───────── */
 function applyPrefs(){const r=document.documentElement;const p=S.prefs;const dark=p.mode==='dark'||(p.mode==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);r.setAttribute('data-mode',dark?'dark':'light');r.setAttribute('data-tone',p.tone);r.setAttribute('data-font',p.font);r.setAttribute('data-density',p.density);const m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',dark?'#0F1216':'#1F4FD8');lsSet('bj-prefs',p);}
@@ -317,6 +319,8 @@ function vehText(o){return o.vehicles.map(v=>v.u?v.n+' '+v.u:v.n).join(', ');}
 function orderPayload(o){return {item:o.item,colorName:o.colorName,qty:o.qty,unit:o.unit,supplier:o.supplier,orderer:o.orderer,orderDate:o.orderDate,receiveDate:o.receiveDate,purpose:o.purpose,customer:o.customer,vehicles:o.vehicles,code:o.code,thumb:o.thumb||'',delivery:o.delivery,note:o.note};}
 function applyNotePhotos(id,d){const x=S.orders.find(y=>y.id===id);if(x&&d){x.notePhotoIds=d.notePhotoIds||[];x.noteThumbs=d.noteThumbs||[];lsSet('bj-cache',S.orders);}}
 function showLightbox(src,onDel){const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.86);z-index:80;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:14px';d.innerHTML='<img src="'+src+'" style="max-width:100%;max-height:72vh;border-radius:10px" alt="">'+(onDel?'<button class="btn dg sm" id="lb-del">이 사진 삭제</button>':'')+'<button class="btn sm" id="lb-x" style="background:#fff;color:#111">닫기</button>';document.body.appendChild(d);d.onclick=e=>{if(e.target===d)d.remove();};d.querySelector('#lb-x').onclick=()=>d.remove();const del=d.querySelector('#lb-del');if(del)del.onclick=()=>{d.remove();onDel();};}
+// 특이사항 사진 크게 보기(+삭제). 상세 화면과 수정 폼이 같이 쓴다
+async function viewNotePhoto(id,pid,fallbackSrc,onDel){let full=S.photoCache['np_'+pid];if(full==null){busy(true,'사진 불러오는 중…');try{const r=await api('notePhotoGet',{id,photoId:pid});full=r.dataUrl||'';}catch(e){full='';}busy(false);S.photoCache['np_'+pid]=full;}if(!full&&!fallbackSrc){toast('사진을 불러오지 못했습니다');return;}showLightbox(full||fallbackSrc,onDel?async()=>{try{await onDel();toast('사진을 삭제했습니다');}catch(e){toast(e.message||'삭제 실패');}}:null);}
 function live(){return S.orders.filter(o=>!o.deleted);}
 function bySort(l){return l.slice().sort((a,b)=>sortKey(b).localeCompare(sortKey(a)));}
 function isAdmin(){return S.me&&S.me.role==='admin';}
@@ -324,16 +328,21 @@ function isAdmin(){return S.me&&S.me.role==='admin';}
 /* ───────── API ───────── */
 async function api(action,payload){
   if(S.demo)return demoApi(action,payload||{});
-  let res;try{res=await fetch(S.api,{method:'POST',body:JSON.stringify(Object.assign({action,token:S.token},payload||{}))});}
-  catch(e){throw{code:'network',message:'서버에 연결할 수 없습니다. 인터넷 연결을 확인하세요.'};}
+  // 40초 넘게 답이 없으면 끊는다 (예전엔 서버가 먹통이면 "저장 중…"이 영원히 떠 있었음)
+  const ctl=('AbortController' in window)?new AbortController():null;const tm=ctl?setTimeout(()=>ctl.abort(),40000):0;
+  let res;try{res=await fetch(S.api,{method:'POST',body:JSON.stringify(Object.assign({action,token:S.token},payload||{})),signal:ctl?ctl.signal:undefined});}
+  catch(e){throw{code:'network',message:(e&&e.name==='AbortError')?'서버 응답이 40초 넘게 없습니다. 잠시 후 다시 시도하세요.':'서버에 연결할 수 없습니다. 인터넷 연결과 설정의 서버 주소를 확인하세요.'};}
+  finally{clearTimeout(tm);}
   let j;try{j=await res.json();}catch(e){throw{code:'bad_response',message:'서버 응답 오류 (서버 주소 또는 배포 설정 확인)'};}
-  if(!j.ok){if(j.code==='unauthorized'&&action!=='login'){logoutLocal();toast('다시 로그인해 주세요');}throw j;}
-  return action==='login'?j.data:j.data;
+  if(!j.ok){if(j.code==='unauthorized'&&action!=='login'){logoutLocal();toast('다시 로그인해 주세요');}
+    if(j.code==='unknown_action'){S.serverOld=true;j.message='서버가 구버전이라 이 기능을 쓸 수 없습니다. 대표님께 Apps Script "새 버전 배포"를 요청하세요';}
+    throw j;}
+  return j.data;
 }
 function upsert(o){o=normalize(o);const i=S.orders.findIndex(x=>x.id===o.id);if(i>=0)S.orders[i]=o;else S.orders.unshift(o);lsSet('bj-cache',S.orders);}
 async function sync(silent){
   if(!silent)busy(true,'불러오는 중…');
-  try{const d=await api('bootstrap');S.orders=(d.orders||[]).map(normalize);S.options=d.options||S.options;S.staff=d.staff||[];S.me=d.me||S.me;S.lastSync=Date.now();lsSet('bj-cache',S.orders);lsSet('bj-opts',S.options);
+  try{const d=await api('bootstrap');S.orders=(d.orders||[]).map(normalize);S.options=d.options||S.options;S.staff=d.staff||[];S.me=d.me||S.me;S.lastSync=Date.now();S.serverOld=!S.demo&&!(Number(d.v)>=MIN_SERVER_VERSION);lsSet('bj-cache',S.orders);lsSet('bj-opts',S.options);
     if(S.me&&S.me.mustChange){renderChangePassword(true);}else render();}
   catch(e){if(!silent)toast(e.message||'불러오기 실패');render();}
   finally{busy(false);}
@@ -363,7 +372,8 @@ async function demoApi(action,p){await new Promise(r=>setTimeout(r,120));const m
     case 'purgeTrash':DEMO.orders=DEMO.orders.filter(o=>!o.deleted);return{};
     case 'setOptions':DEMO.options=p.options;return clone(DEMO.options);
     case 'changePassword':return{};case 'staffList':return clone(DEMO.staff);case 'staffAdd':DEMO.staff.push({name:p.name,role:p.role||'staff',active:true});return{};case 'staffReset':return{};case 'staffToggle':{const u=DEMO.staff.find(s=>s.name===p.name);u.active=!u.active;return{active:u.active};}case 'logoutAll':return{};
-    case 'photoPut':{const o=find(p.id);o.photoId='demo';DEMO['ph_'+p.id]=p.dataUrl;return{};}case 'photoGet':return{dataUrl:DEMO['ph_'+p.id]||''};
+    case 'photoPut':{const o=find(p.id);o.photoId='demo';DEMO['ph_'+p.id]=p.dataUrl;return{photoId:'demo'};}case 'photoGet':return{dataUrl:DEMO['ph_'+p.id]||''};
+    case 'photoDel':{const o=find(p.id);o.photoId='';o.thumb='';delete DEMO['ph_'+p.id];return clone(o);}
     case 'notePhotoAdd':{const o=find(p.id);o.notePhotoIds=(o.notePhotoIds||[]);o.noteThumbs=(o.noteThumbs||[]);if(o.notePhotoIds.length>=20)throw{message:'특이사항 사진은 20장까지입니다'};const pid='np'+uid();o.notePhotoIds=o.notePhotoIds.concat([pid]);o.noteThumbs=o.noteThumbs.concat([p.thumb||'']);DEMO['npf_'+pid]=p.dataUrl;return{notePhotoIds:clone(o.notePhotoIds),noteThumbs:clone(o.noteThumbs)};}
     case 'notePhotoDel':{const o=find(p.id);const i=(o.notePhotoIds||[]).indexOf(p.photoId);if(i>=0){o.notePhotoIds.splice(i,1);o.noteThumbs.splice(i,1);}return{notePhotoIds:clone(o.notePhotoIds||[]),noteThumbs:clone(o.noteThumbs||[])};}
     case 'notePhotoGet':return{dataUrl:DEMO['npf_'+p.photoId]||''};
@@ -412,7 +422,11 @@ function renderChangePassword(forced){
   if(forced){document.body.className='';el('root').innerHTML='<div class="auth"><div class="auth-card">'+logoHtml('비밀번호 설정')+body+'<div style="height:12px"></div><button class="btn p w" id="cp-go">변경하고 시작</button><div class="foot"><button id="cp-logout">로그아웃</button></div></div></div>';el('cp-logout').onclick=logout;}
   else{openSheet('비밀번호 변경',body,'<button class="btn ghost" id="cp-cancel" style="flex:0 0 auto;padding:0 16px">취소</button><button class="btn p" id="cp-go">변경</button>');el('cp-cancel').onclick=closeSheet;}
   el('cp-go').onclick=async()=>{const o=el('cp-old').value,n=el('cp-new').value,n2=el('cp-new2').value;if(n.length<6){toast('새 비밀번호는 6자 이상');return;}if(n!==n2){toast('새 비밀번호가 서로 다릅니다');return;}
-    busy(true,'변경 중…');try{await api('changePassword',{oldPassword:o,newPassword:n});S.me.mustChange=false;lsSet('bj-me',S.me);toast('비밀번호를 변경했습니다. 다시 로그인해 주세요.');logoutLocal();renderLogin();}catch(e){toast(e.message||'변경 실패');}finally{busy(false);}};
+    busy(true,'변경 중…');try{await api('changePassword',{oldPassword:o,newPassword:n});const name=S.me.name;logoutLocal();
+      // 비밀번호를 바꾸면 서버가 모든 로그인을 끊으므로, 새 비밀번호로 바로 다시 로그인해 준다 (예전엔 직원이 두 번 로그인해야 했음)
+      try{const d=await api('login',{name,password:n,device:navigator.userAgent.slice(0,60)});S.token=d.token;S.me={name:d.name,role:d.role,mustChange:false};if(!S.demo){lsSet('bj-token',S.token);lsSet('bj-me',S.me);}closeSheet();toast('비밀번호를 변경했습니다');S.tab='home';await sync();}
+      catch(e2){toast('비밀번호를 변경했습니다. 새 비밀번호로 로그인해 주세요.');renderLogin();}}
+    catch(e){toast(e.message||'변경 실패');}finally{busy(false);}};
 }
 
 /* ───────── 앱 셸 ───────── */
@@ -421,7 +435,7 @@ function render(){
   document.body.className='in';
   if(!S.month)S.month=today().slice(0,7);
   const root=el('root');
-  root.innerHTML=(S.demo?'<div class="demo-banner">데모 모드 — 서버 없이 둘러보는 중</div>':'')+'<div class="app"><div class="bar" id="bar"></div><main id="main"></main></div>'
+  root.innerHTML=(S.demo?'<div class="demo-banner">데모 모드 — 서버 없이 둘러보는 중</div>':'')+(S.serverOld?'<div class="demo-banner" style="background:var(--danger-bg);color:var(--danger)">서버가 구버전입니다 — 사진 기능이 안 됩니다. 대표님께 Apps Script "새 버전 배포"를 요청하세요</div>':'')+'<div class="app"><div class="bar" id="bar"></div><main id="main"></main></div>'
     +'<button class="fab" id="fab" aria-label="발주 추가"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>'
     +'<nav class="tabs"><div class="tabs-in" id="tabs"></div></nav><div id="selbar"></div>';
   el('fab').onclick=()=>openForm(null);
@@ -584,12 +598,16 @@ function bindChips(root,name,cb){const wrap=root.querySelector('[data-cf="'+name
 function freqSorted(key,list){const cut=new Date(Date.now()-120*864e5).toISOString().slice(0,10);const c={};live().forEach(o=>{if((o.orderDate||o.receiveDate||'')<cut)return;const v=o[key];if(v)c[v]=(c[v]||0)+1;});return list.map((v,i)=>({v,i,c:c[v]||0})).sort((a,b)=>b.c-a.c||a.i-b.i).map(x=>x.v);}
 function suggestColors(item){const c={};live().forEach(o=>{if(o.item===item&&o.colorName)c[o.colorName]=(c[o.colorName]||0)+1;});return Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,6).map(x=>x[0]);}
 function recentVehicles(){const seen=new Map();bySort(live()).forEach(o=>o.vehicles.forEach(v=>{const k=v.n.toLowerCase();if(!seen.has(k))seen.set(k,v.n);}));return[...seen.values()].slice(0,8);}
-function resizeImage(file,max,q){return new Promise((res,rej)=>{const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{const r=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*r);c.height=Math.round(img.height*r);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);res(c.toDataURL('image/jpeg',q));};img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'));};img.src=url;});}
+function loadImg(file){return new Promise((res,rej)=>{const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{URL.revokeObjectURL(url);res(img);};img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'));};img.src=url;});}
+function shrink(img,max,q){const r=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*r);c.height=Math.round(img.height*r);c.getContext('2d').drawImage(img,0,0,c.width,c.height);return c.toDataURL('image/jpeg',q);}
+// 사진 1장을 한 번만 읽어 원본용(1000px)과 미리보기용을 만든다 (예전엔 두 번 읽어 느렸음). 미리보기는 서버 한도(4,000자) 안에 들 때까지 줄인다
+async function makePhoto(file,thumbMax){const img=await loadImg(file);const full=shrink(img,1000,.72);let th=shrink(img,thumbMax||80,.6);if(th.length>3600)th=shrink(img,64,.5);if(th.length>3600)th=shrink(img,48,.45);return{full,thumb:th};}
+const PHOTO_READ_ERR='사진을 열 수 없습니다. HEIC 형식이면 폰 카메라 설정을 "호환성 우선(JPEG)"으로 바꾸거나 다른 사진을 골라주세요';
 
 /* ───────── 발주 입력/수정 ───────── */
-function openForm(existing){
+function openForm(existing,initialQueue){
   const o=existing?clone(existing):{supplier:freqSorted('supplier',S.options.suppliers)[0]||'',orderer:S.me.name,orderDate:today(),receiveDate:'',customer:OWN,purpose:'own',qty:1,unit:'롤',item:'',colorName:'',code:'',vehicles:[],note:'',delivery:'',thumb:''};
-  let photoData=null,photoRemoved=false,already=!!o.receiveDate,npQueue=[];
+  let photoData=null,photoRemoved=false,already=!!o.receiveDate,npQueue=(initialQueue||[]).slice(); // initialQueue: 업로드 실패로 되돌아온 사진들
   const items=freqSorted('item',S.options.items),sups=freqSorted('supplier',S.options.suppliers),custs=freqSorted('customer',S.options.customers);const staffList=S.staff.length?S.staff:[S.me.name];
   const body='<div class="f"><div class="lb"><span>품목</span><span class="h">필수 · 자주 쓰는 순</span></div>'+chipsField('item',items,o.item,true)+'</div>'
    +'<div class="f"><div class="lb"><span>컬러 / 종류</span></div><input class="inp" id="f-color" placeholder="유광, 무광, CYS, 블랙…" value="'+esc(o.colorName)+'"><div class="chips" id="f-csugg" style="margin-top:6px"></div></div>'
@@ -606,7 +624,7 @@ function openForm(existing){
    +'<div class="f"><div class="lb"><span>주문자</span></div>'+chipsField('orderer',staffList,o.orderer,false)+'</div>'
    +'<div class="f"><div class="lb"><span>납품 내역</span></div><input class="inp" id="f-del" placeholder="예: 50-3500, 1BOX 발송" value="'+esc(o.delivery)+'"></div>'
    +'<div class="f"><div class="lb"><span>메모</span><span class="h">여러 줄로 적어도 그대로 보여요</span></div><textarea class="inp" id="f-note" placeholder="저가형, 사고수리 등">'+esc(o.note)+'</textarea></div>'
-   +'<div class="f"><div class="lb"><span>특이사항 사진</span><span class="h">불량 필름 등 · 최대 20장</span></div><div class="npgrid" id="f-npgrid"></div><div class="row2" style="margin-top:8px"><button type="button" class="btn sm" id="f-npcam">📷 촬영</button><button type="button" class="btn sm ghost" id="f-npgal">앨범</button></div><input type="file" accept="image/*" capture="environment" class="file" id="f-npc"><input type="file" accept="image/*" class="file" id="f-npg"></div></div>';
+   +'<div class="f"><div class="lb"><span>특이사항 사진</span><span class="h">불량 필름 등 · 최대 20장</span></div><div class="npgrid" id="f-npgrid"></div><div class="row2" style="margin-top:8px"><button type="button" class="btn sm" id="f-npcam">📷 촬영</button><button type="button" class="btn sm ghost" id="f-npgal">앨범</button></div><input type="file" accept="image/*" capture="environment" class="file" id="f-npc"><input type="file" accept="image/*" multiple class="file" id="f-npg"></div></div>';
   openSheet(existing?'발주 수정':'발주 추가',body,'<button class="btn ghost" id="f-cancel" style="flex:0 0 auto;padding:0 16px">취소</button><button class="btn p" id="f-save">'+(existing?'저장':'추가')+'</button>');
   const sb=el('sb');
   const rc=()=>{const s=suggestColors(o.item);el('f-csugg').innerHTML=s.map(c=>'<button type="button" class="chip xs '+(c===o.colorName?'on':'')+'" data-c="'+esc(c)+'">'+esc(c)+'</button>').join('');el('f-csugg').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{el('f-color').value=b.dataset.c;o.colorName=b.dataset.c;rc();});};
@@ -620,15 +638,20 @@ function openForm(existing){
   el('f-purpose').querySelectorAll('button').forEach(b=>b.onclick=()=>{el('f-purpose').querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');o.purpose=b.dataset.p;el('f-vf').hidden=o.purpose!=='own';el('f-cf').hidden=o.purpose!=='sale';});
   el('f-veh-add').onclick=addVeh;el('f-veh').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();addVeh();}};
   el('f-more').onclick=()=>{const b=el('f-mb');b.hidden=!b.hidden;el('f-more').lastElementChild.textContent=b.hidden?'▾':'▴';};
-  if(existing||o.code||o.thumb)el('f-more').click();
+  if(existing||o.code||o.thumb||npQueue.length)el('f-more').click();
   sb.querySelectorAll('[data-set]').forEach(b=>b.onclick=()=>{const [id,w]=b.dataset.set.split(':');const i=el(id);if(w==='today')i.value=today();else if(w==='yest'){const d=new Date();d.setDate(d.getDate()-1);i.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}else i.value='';});
   el('f-recv').onclick=()=>{already=!already;el('f-recv').classList.toggle('on',already);el('f-rdw').hidden=!already;};
   el('f-cam').onclick=()=>el('f-fc').click();el('f-gal').onclick=()=>el('f-fg').click();
-  const onFile=async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;try{const full=await resizeImage(f,1000,.72);const th=await resizeImage(f,80,.6);photoData={full,thumb:th};photoRemoved=false;el('f-photo').innerHTML='<img src="'+th+'" alt="">';el('f-rmp').hidden=false;}catch(err){toast('사진을 읽지 못했습니다');}e.target.value='';};
+  const onFile=async e=>{const f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;try{photoData=await makePhoto(f,80);photoRemoved=false;el('f-photo').innerHTML='<img src="'+photoData.thumb+'" alt="">';el('f-rmp').hidden=false;}catch(err){toast(PHOTO_READ_ERR);}};
   el('f-fc').onchange=onFile;el('f-fg').onchange=onFile;
   el('f-rmp').onclick=()=>{photoData=null;photoRemoved=true;el('f-photo').innerHTML='<div class="ph">사진 없음</div>';el('f-rmp').hidden=true;};
-  const rnp=()=>{const ex=(o.noteThumbs||[]).map(t=>t?'<img src="'+t+'" alt="">':'<span class="npph">사진</span>').join('');const nw=npQueue.map((q,i)=>'<span class="npq"><img src="'+q.thumb+'" alt=""><button type="button" class="npx" data-q="'+i+'">✕</button></span>').join('');el('f-npgrid').innerHTML=ex+nw;el('f-npgrid').querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{npQueue.splice(+b.dataset.q,1);rnp();});};
-  const onNp=async e=>{const f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;if((o.noteThumbs||[]).length+npQueue.length>=20){toast('특이사항 사진은 20장까지입니다');return;}try{const full=await resizeImage(f,1000,.72);let th=await resizeImage(f,72,.55);if(th.length>2400)th=await resizeImage(f,56,.45);npQueue.push({full,thumb:th});rnp();}catch(err){toast('사진을 읽지 못했습니다');}};
+  const rnp=()=>{const ex=(o.noteThumbs||[]).map((t,i)=>t?'<img src="'+t+'" data-ex="'+i+'" alt="">':'<span class="npph" data-ex="'+i+'">사진'+(i+1)+'</span>').join('');const nw=npQueue.map((q,i)=>'<span class="npq"><img src="'+q.thumb+'" alt=""><button type="button" class="npx" data-q="'+i+'">✕</button></span>').join('');el('f-npgrid').innerHTML=ex+nw;el('f-npgrid').querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{npQueue.splice(+b.dataset.q,1);rnp();});
+    // 이미 올라간 사진은 누르면 크게 보기 + 삭제 (예전엔 수정 폼에서 지울 수 없었음)
+    el('f-npgrid').querySelectorAll('[data-ex]').forEach(t=>t.onclick=()=>{if(!o.id)return;const i=+t.dataset.ex;const pid=o.notePhotoIds[i];viewNotePhoto(o.id,pid,t.tagName==='IMG'?t.src:'',async()=>{const d=await api('notePhotoDel',{id:o.id,photoId:pid});applyNotePhotos(o.id,d);o.notePhotoIds=d.notePhotoIds||[];o.noteThumbs=d.noteThumbs||[];rnp();});});};
+  // 여러 장을 한 번에 골라도 된다. 한 장씩 읽으며 진행 상황을 보여준다
+  const onNp=async e=>{const files=[...(e.target.files||[])];e.target.value='';if(!files.length)return;let bad=0;
+    for(let i=0;i<files.length;i++){if((o.noteThumbs||[]).length+npQueue.length>=20){toast('특이사항 사진은 20장까지입니다');break;}busy(true,'사진 읽는 중 '+(i+1)+'/'+files.length);try{npQueue.push(await makePhoto(files[i],80));}catch(err){bad++;}}
+    busy(false);rnp();if(bad)toast(bad+'장은 열 수 없어 뺐습니다. '+PHOTO_READ_ERR);};
   el('f-npcam').onclick=()=>el('f-npc').click();el('f-npgal').onclick=()=>el('f-npg').click();el('f-npc').onchange=onNp;el('f-npg').onchange=onNp;rnp();
   el('f-cancel').onclick=closeSheet;
   el('f-save').onclick=async()=>{
@@ -642,8 +665,15 @@ function openForm(existing){
     try{const n=clone(S.options);let ch=false;[['items',o.item],['suppliers',o.supplier],['customers',o.purpose==='sale'?o.customer:'']].forEach(([k,v])=>{if(v&&!n[k].includes(v)){n[k]=[...n[k],v];ch=true;}});if(ch){try{const oo=await api('setOptions',{options:n});S.options=oo||n;}catch(e){}}
       const payload=orderPayload(o);if(existing&&o.id)payload.id=o.id;
       const saved=await api('save',{order:payload});upsert(saved);
-      if(photoData){try{await api('photoPut',{id:saved.id,dataUrl:photoData.full});S.photoCache[saved.id]=photoData.full;}catch(e){toast('기록은 저장됐지만 사진 업로드에 실패했습니다');}}
-      for(const q2 of npQueue){try{const d2=await api('notePhotoAdd',{id:saved.id,dataUrl:q2.full,thumb:q2.thumb});applyNotePhotos(saved.id,d2);if(d2&&d2.notePhotoIds&&d2.notePhotoIds.length)S.photoCache['np_'+d2.notePhotoIds[d2.notePhotoIds.length-1]]=q2.full;}catch(e2){toast('특이사항 사진 일부를 올리지 못했습니다');break;}}
+      // 라벨 사진 '제거'는 서버의 원본까지 지운다 (예전엔 썸네일만 비워져 상세에서 계속 보였음)
+      if(photoRemoved&&existing&&(existing.photoId||existing.thumb)){try{const d0=await api('photoDel',{id:saved.id});upsert(d0);delete S.photoCache[saved.id];}catch(e){toast('라벨 사진 삭제 실패: '+(e.message||''));}}
+      if(photoData){btn.textContent='라벨 사진 올리는 중…';try{const r=await api('photoPut',{id:saved.id,dataUrl:photoData.full});S.photoCache[saved.id]=photoData.full;const x=S.orders.find(y=>y.id===saved.id);if(x){x.photoId=(r&&r.photoId)||x.photoId||'y';lsSet('bj-cache',S.orders);}}catch(e){toast('기록은 저장됐지만 라벨 사진은 못 올렸습니다: '+(e.message||''));}}
+      // 특이사항 사진은 한 장씩 올리며 진행 상황을 보여주고, 실패하면 남은 사진을 들고 수정 폼으로 돌아간다 (예전엔 원인 표시 없이 버려졌음)
+      let failMsg='';
+      for(let i=0;i<npQueue.length;i++){const q2=npQueue[i];btn.textContent='사진 '+(i+1)+'/'+npQueue.length+' 올리는 중…';
+        try{const d2=await api('notePhotoAdd',{id:saved.id,dataUrl:q2.full,thumb:q2.thumb});applyNotePhotos(saved.id,d2);if(d2&&d2.notePhotoIds&&d2.notePhotoIds.length)S.photoCache['np_'+d2.notePhotoIds[d2.notePhotoIds.length-1]]=q2.full;}
+        catch(e2){failMsg=e2.message||'알 수 없는 오류';npQueue=npQueue.slice(i);break;}}
+      if(failMsg){const left=npQueue;closeSheet();S.q='';render();toast('기록은 저장됐지만 사진 '+left.length+'장을 못 올렸습니다: '+failMsg);setTimeout(()=>openForm(S.orders.find(x=>x.id===saved.id)||normalize(saved),left),400);return;}
       closeSheet();toast(existing?'저장했습니다':'발주를 추가했습니다');S.q='';render();}
     catch(err){btn.disabled=false;btn.textContent=existing?'저장':'추가';toast(err.message||'저장 실패');}};
 }
@@ -674,16 +704,23 @@ async function openDetail(id){
   const veh=o.purpose==='own'?'<div class="box"><h3>시공 차량 <button id="d-veh">'+(o.vehicles.length?'수정':'+ 입력')+'</button></h3>'+(o.vehicles.length?'<div class="chips">'+o.vehicles.map(v=>'<span class="chip xs">'+esc(v.n)+(v.u?' · '+esc(v.u):'')+'</span>').join('')+'</div>':'<div class="hint" style="margin:0">아직 기록되지 않았습니다.</div>')+'</div>':'<div class="box"><h3>판매 업체</h3><div style="font-weight:600">'+esc(o.customer)+'</div></div>';
   const body='<div class="dh"><div><div class="t">'+esc(o.item||'품목 미입력')+'</div><div class="s">'+(o.colorName?'<span class="st">'+esc(o.colorName)+'</span>':'')+'<span class="st '+st+'">'+statusLabel(o)+'</span>'+(o.purpose==='sale'?'<span class="st sale">판매</span>':'')+'<span>'+esc(o.supplier||'')+'</span></div></div><div class="q">'+esc(qtyText(o))+'</div></div>'+steps+'<div style="margin-bottom:10px">'+primary+'</div>'+veh
    +'<div class="box"><div class="kv" style="border:0;padding:0"><div class="k">코드명</div><div class="v mono">'+esc(o.code||'-')+'</div><div class="k">납품 내역</div><div class="v">'+esc(o.delivery||'-')+'</div><div class="k">메모</div><div class="v" style="white-space:pre-wrap">'+esc(o.note||'-')+'</div><div class="k">등록</div><div class="v"><span class="mono">'+fmtTs(o.createdAt)+'</span> '+esc(o.createdBy||'')+'</div></div><div id="d-photo" style="margin-top:8px">'+((o.photoId||o.thumb)?'<div class="hint">사진 불러오는 중…</div>':'')+'</div></div>'
-   +'<div class="box"><h3>특이사항 사진 '+o.notePhotoIds.length+'/20 <button id="d-npadd">+ 사진 추가</button></h3><div class="npgrid" id="d-npg">'+(o.noteThumbs.length?o.noteThumbs.map((t,i)=>t?'<img src="'+t+'" data-np="'+i+'" alt="특이사항 사진 '+(i+1)+'">':'<span class="npph" data-np="'+i+'">사진'+(i+1)+'</span>').join(''):'<div class="hint" style="margin:0">불량 필름 등 특이사항 사진을 남길 수 있어요. 누르면 크게 보입니다.</div>')+'</div><input type="file" accept="image/*" capture="environment" class="file" id="d-npf"></div>'
+   +'<div class="box"><h3>특이사항 사진 '+o.notePhotoIds.length+'/20 <span style="display:flex;gap:12px"><button id="d-npadd">📷 촬영</button><button id="d-npgal">앨범</button></span></h3><div class="npgrid" id="d-npgrid">'+(o.noteThumbs.length?o.noteThumbs.map((t,i)=>t?'<img src="'+t+'" data-np="'+i+'" alt="특이사항 사진 '+(i+1)+'">':'<span class="npph" data-np="'+i+'">사진'+(i+1)+'</span>').join(''):'<div class="hint" style="margin:0">불량 필름 등 특이사항 사진을 남길 수 있어요. 누르면 크게 보입니다.</div>')+'</div><input type="file" accept="image/*" capture="environment" class="file" id="d-npf"><input type="file" accept="image/*" multiple class="file" id="d-npg"></div>'
    +'<div class="box"><h3>이력 '+o.log.length+'건 <span style="display:flex;gap:10px"><button id="d-log">보기</button>'+(st==='stock'?'<button id="d-unrecv">입고 취소</button>':'')+'</span></h3><ul class="log" id="d-logl" hidden>'+o.log.slice().reverse().map(l=>'<li><span class="mono">'+fmtTs(l.t)+'</span><span class="w">'+esc(l.w)+'</span><span>'+esc(l.m)+'</span></li>').join('')+'</ul></div>';
   openSheet('발주 상세',body,'<button class="btn dg sm" id="d-del">삭제</button><button class="btn" id="d-edit">수정</button>');
   const b=id2=>el(id2);
   if(b('d-recv'))b('d-recv').onclick=()=>receive(id);if(b('d-done'))b('d-done').onclick=()=>markDone(id);if(b('d-undone'))b('d-undone').onclick=()=>unDone(id);if(b('d-veh'))b('d-veh').onclick=()=>openVehicleSheet(id);if(b('d-unrecv'))b('d-unrecv').onclick=()=>unreceive(id);
   b('d-log').onclick=()=>{const l=b('d-logl');l.hidden=!l.hidden;b('d-log').textContent=l.hidden?'보기':'접기';};
-  const npf=b('d-npf');
-  if(b('d-npadd'))b('d-npadd').onclick=()=>{if(o.notePhotoIds.length>=20){toast('특이사항 사진은 20장까지입니다');return;}npf.click();};
-  if(npf)npf.onchange=async e=>{const f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;busy(true,'사진 올리는 중…');try{const full=await resizeImage(f,1000,.72);let th=await resizeImage(f,72,.55);if(th.length>2400)th=await resizeImage(f,56,.45);const d=await api('notePhotoAdd',{id,dataUrl:full,thumb:th});applyNotePhotos(id,d);if(d&&d.notePhotoIds&&d.notePhotoIds.length)S.photoCache['np_'+d.notePhotoIds[d.notePhotoIds.length-1]]=full;toast('사진을 추가했습니다');openDetail(id);}catch(err){toast(err.message||'사진 올리기 실패');}finally{busy(false);}};
-  el('sb').querySelectorAll('[data-np]').forEach(img=>img.onclick=async()=>{const i=+img.dataset.np;const pid=o.notePhotoIds[i];let full=S.photoCache['np_'+pid];if(full==null){busy(true,'사진 불러오는 중…');try{const r=await api('notePhotoGet',{id,photoId:pid});full=r.dataUrl||'';}catch(e){full='';}busy(false);S.photoCache['np_'+pid]=full;}showLightbox(full||img.src,async()=>{try{const d=await api('notePhotoDel',{id,photoId:pid});applyNotePhotos(id,d);toast('사진을 삭제했습니다');openDetail(id);}catch(e){toast('삭제 실패');}});});
+  // 촬영(카메라) / 앨범(여러 장) 둘 다 가능 (예전엔 상세에서 카메라만 열렸음)
+  const guard=()=>{if(o.notePhotoIds.length>=20){toast('특이사항 사진은 20장까지입니다');return false;}return true;};
+  if(b('d-npadd'))b('d-npadd').onclick=()=>{if(guard())b('d-npf').click();};
+  if(b('d-npgal'))b('d-npgal').onclick=()=>{if(guard())b('d-npg').click();};
+  const onPick=async e=>{const files=[...(e.target.files||[])];e.target.value='';if(!files.length)return;let ok=0,fail='';
+    for(let i=0;i<files.length;i++){if(o.notePhotoIds.length+ok>=20){fail='20장까지입니다';break;}busy(true,'사진 '+(i+1)+'/'+files.length+' 올리는 중…');
+      try{const p=await makePhoto(files[i],80);const d=await api('notePhotoAdd',{id,dataUrl:p.full,thumb:p.thumb});applyNotePhotos(id,d);if(d&&d.notePhotoIds&&d.notePhotoIds.length)S.photoCache['np_'+d.notePhotoIds[d.notePhotoIds.length-1]]=p.full;ok++;}
+      catch(err){fail=(err&&err.message==='img')?PHOTO_READ_ERR:(err.message||'올리기 실패');break;}}
+    busy(false);if(ok)toast(ok+'장 추가했습니다'+(fail?' / 나머지 실패: '+fail:''));else if(fail)toast('사진 올리기 실패: '+fail);openDetail(id);};
+  if(b('d-npf'))b('d-npf').onchange=onPick;if(b('d-npg'))b('d-npg').onchange=onPick;
+  el('sb').querySelectorAll('[data-np]').forEach(img=>img.onclick=()=>{const i=+img.dataset.np;const pid=o.notePhotoIds[i];viewNotePhoto(id,pid,img.tagName==='IMG'?img.src:'',async()=>{const d=await api('notePhotoDel',{id,photoId:pid});applyNotePhotos(id,d);openDetail(id);});});
   b('d-edit').onclick=()=>openForm(o);
   b('d-del').onclick=()=>confirmSheet('이 기록을 삭제할까요?',esc(o.item)+' '+esc(o.colorName||'')+' '+qtyText(o)+' — 휴지통으로 이동하며 설정에서 복구할 수 있습니다.','삭제',async()=>{await run('softDelete',{ids:[id]},'삭제했습니다 (휴지통)');await sync(true);});
   if(o.photoId||o.thumb){let p=S.photoCache[id];if(p==null){try{const r=await api('photoGet',{id});p=r.dataUrl||'';}catch(e){p='';}S.photoCache[id]=p;}const box=b('d-photo');if(box)box.innerHTML=p?'<img class="bigphoto" src="'+p+'" alt="라벨 사진">':(o.thumb?'<img class="bigphoto" src="'+o.thumb+'" alt="">':'');}
@@ -695,6 +732,8 @@ async function openDetail(id){
   if('serviceWorker' in navigator&&location.protocol==='https:'&&!/googleusercontent|script\.google/.test(location.hostname)){navigator.serviceWorker.register('sw.js').catch(()=>{});}
   const injected=window.__API_URL__&&!/^%%/.test(window.__API_URL__)?window.__API_URL__:'';
   const fromParam=params.get('api')||'';
+  // 예전 앱에 박혀 있던 옛 서버 주소가 저장돼 있으면 새 주소로 바꿔준다 (직원이 직접 주소를 안 바꿔도 되게)
+  if(OLD_APIS.includes(lsGet('bj-api','')))lsSet('bj-api',DEFAULT_API);
   if(fromParam&&/^https:\/\/script\.google\.com\/.+\/exec(\?.*)?$/.test(fromParam)){lsSet('bj-api',fromParam);history.replaceState(null,'',location.pathname);}
   S.api=injected||lsGet('bj-api','')||fromParam||DEFAULT_API;
   if(params.get('demo')==='1'){S.demo=true;demoSeed();renderLogin();return;}
